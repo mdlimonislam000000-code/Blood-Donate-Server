@@ -4,7 +4,6 @@ const cors = require("cors");
 const nodemailer = require("nodemailer");
 require("dotenv").config();
 
-// Better Auth হ্যান্ডলারের জন্য সরাসরি রিকোয়ার করে নেওয়া হলো
 const { toNodeHandler } = require("better-auth/node");
 const { auth } = require("./auth.js");
 
@@ -17,13 +16,15 @@ app.use(cors({
     "http://localhost:3000",
     "https://mmj-server-kohl.vercel.app"
   ], 
-  credentials: true
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// Better Auth রাউট হ্যান্ডলিং (সরাসরি নোড হ্যান্ডলার ব্যবহার করে)
+// Better Auth রাউট হ্যান্ডলিং
 app.all("/api/auth/*", async (req, res, next) => {
   try {
     return toNodeHandler(auth)(req, res, next);
@@ -34,29 +35,40 @@ app.all("/api/auth/*", async (req, res, next) => {
 });
 
 const uri = process.env.MONGO_URI;
-const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  },
-});
+let client = null;
+let clientPromise = null;
 
-let cachedClient = null;
-let cachedDb = null;
+if (!uri) {
+  throw new Error("Please add your Mongo URI to .env");
+}
+
+if (process.env.NODE_ENV === "development") {
+  if (!global._mongoClientPromise) {
+    client = new MongoClient(uri, {
+      serverApi: {
+        version: ServerApiVersion.v1,
+        strict: true,
+        deprecationErrors: true,
+      },
+    });
+    global._mongoClientPromise = client.connect();
+  }
+  clientPromise = global._mongoClientPromise;
+} else {
+  client = new MongoClient(uri, {
+    serverApi: {
+      version: ServerApiVersion.v1,
+      strict: true,
+      deprecationErrors: true,
+    },
+  });
+  clientPromise = client.connect();
+}
 
 async function connectToDatabase() {
-  if (cachedClient && cachedDb) {
-    return { client: cachedClient, db: cachedDb };
-  }
-  
-  if (!client.topology || !client.topology.isConnected()) {
-    await client.connect();
-  }
-  
-  cachedClient = client;
-  cachedDb = client.db("MMJ-Blood-bank");
-  return { client: cachedClient, db: cachedDb };
+  const connectedClient = await clientPromise;
+  const db = connectedClient.db("MMJ-Blood-bank");
+  return { client: connectedClient, db };
 }
 
 const getDbCollections = async () => {
