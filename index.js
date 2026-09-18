@@ -2,22 +2,19 @@ const express = require("express");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const cors = require("cors");
 const nodemailer = require("nodemailer");
-const bcrypt = require("bcryptjs");
 require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Better Auth নিরাপদ হ্যান্ডলিং (CommonJS মোডের জন্য ডাইনামিক ইমপোর্ট)
-(async () => {
-  try {
-    const { toNodeHandler } = await import("better-auth/node");
-    const { auth } = await import("./auth.js");
-    app.use("/api/auth", toNodeHandler(auth));
-  } catch (authError) {
-    console.log("Better Auth load skipped or error:", authError.message);
-  }
-})();
+// Better Auth সেফ হ্যান্ডলিং (সার্ভার ক্র্যাশ রোধ করতে)
+try {
+  const { toNodeHandler } = require("better-auth/node");
+  const { auth } = require("./auth");
+  app.use("/api/auth", toNodeHandler(auth));
+} catch (authError) {
+  console.log("Better Auth load skipped or error:", authError.message);
+}
 
 app.use(cors({
   origin: [
@@ -40,6 +37,7 @@ const client = new MongoClient(uri, {
   },
 });
 
+// কানেকশন ক্যাশ করার জন্য গ্লোবাল ভেরিয়েবল (Vercel Serverless এর জন্য অত্যন্ত জরুরি)
 let cachedClient = null;
 let cachedDb = null;
 
@@ -69,6 +67,7 @@ const getDbCollections = async () => {
   };
 };
 
+// এসিনক্রোনাস হ্যান্ডলারের জন্য ট্রাই-ক্যাচ অটোমেশন ফাংশন
 const tryCatch = (fn) => async (req, res, next) => {
   try {
     await fn(req, res, next);
@@ -77,6 +76,7 @@ const tryCatch = (fn) => async (req, res, next) => {
   }
 };
 
+// Nodemailer দিয়ে ইমেল পাঠানোর ইউটিলিটি ফাংশন
 const sendEmail = async (toEmail, subject, htmlContent) => {
   try {
     if (!toEmail) {
@@ -106,15 +106,10 @@ const sendEmail = async (toEmail, subject, htmlContent) => {
   }
 };
 
-const hashPassword = async (password) => {
-  const salt = await bcrypt.genSalt(10);
-  return await bcrypt.hash(password, salt);
-};
-
 // --- API ROUTES ---
 
 app.post("/api/send-otp", tryCatch(async (req, res) => {
-  const email = req.body.email?.toLowerCase().trim();
+  const { email } = req.body;
   if (!email) {
     return res.status(400).json({ success: false, message: 'ইমেল ঠিকানা প্রয়োজন।' });
   }
@@ -148,9 +143,7 @@ app.post("/api/send-otp", tryCatch(async (req, res) => {
 }));
 
 app.post("/api/verify-otp", tryCatch(async (req, res) => {
-  const email = req.body.email?.toLowerCase().trim();
-  const { otp } = req.body;
-
+  const { email, otp } = req.body;
   if (!email || !otp) {
     return res.status(400).json({ success: false, message: 'ইমেল এবং ওটিপি উভয়ই দিতে হবে।' });
   }
@@ -170,113 +163,6 @@ app.post("/api/verify-otp", tryCatch(async (req, res) => {
 
   await otpCollection.deleteOne({ email });
   res.status(200).json({ success: true, message: 'ওটিপি সফলভাবে ভেরিফাই হয়েছে!' });
-}));
-
-app.post("/api/forgot-password", tryCatch(async (req, res) => {
-  const email = req.body.email?.toLowerCase().trim();
-  if (!email) {
-    return res.status(400).json({ success: false, message: 'ইমেল ঠিকানা প্রয়োজন।' });
-  }
-
-  const { db } = await connectToDatabase();
-  const userCollection = db.collection("user");
-  const { otpCollection } = await getDbCollections();
-  
-  const user = await userCollection.findOne({ email });
-  if (!user) {
-    return res.status(404).json({ success: false, message: 'এই ইমেল দিয়ে কোনো অ্যাকাউন্ট পাওয়া যায়নি।' });
-  }
-
-  const resetToken = Math.floor(100000 + Math.random() * 900000).toString();
-  const tokenExpires = new Date(Date.now() + 15 * 60 * 1000);
-
-  await otpCollection.findOneAndUpdate(
-    { email },
-    { $set: { resetToken, tokenExpires, createdAt: new Date() } },
-    { upsert: true, returnDocument: 'after' }
-  );
-
-  const resetLink = `${process.env.BETTER_AUTH_URL_CLIENT}/reset-password?email=${encodeURIComponent(email)}&token=${resetToken}`;
-
-  const emailSubject = 'পাসওয়ার্ড রিসেট অনুরোধ (Password Reset)';
-  const emailBody = `
-    <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
-      <h2 style="color: #e11d48;">MMJ Blood Donate Society</h2>
-      <p>হ্যালো ${user.name || 'ব্যবহারকারী'},</p>
-      <p>আপনার অ্যাকাউন্টটি পাসওয়ার্ড রিসেট করার জন্য অনুরোধ করা হয়েছে। নিচের লিংকে ক্লিক করে নতুন পাসওয়ার্ড সেট করুন:</p>
-      <a href="${resetLink}" style="background: #e11d48; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">পাসওয়ার্ড রিসেট করুন</a>
-      <p style="margin-top: 20px; font-size: 12px; color: #666;">লিংকটি ১৫ মিনিট পর্যন্ত কার্যকর থাকবে।</p>
-    </div>
-  `;
-
-  const emailResult = await sendEmail(email, emailSubject, emailBody);
-  if (!emailResult.success) {
-    return res.status(500).json({ success: false, message: 'পাসওয়ার্ড রিসেট ইমেল পাঠানো ব্যর্থ হয়েছে।' });
-  }
-
-  res.status(200).json({ success: true, message: 'পাসওয়ার্ড রিসেট লিংক আপনার ইমেইলে পাঠানো হয়েছে।' });
-}));
-
-app.post("/api/reset-password", tryCatch(async (req, res) => {
-  const email = req.body.email?.toLowerCase().trim();
-  const { token, newPassword } = req.body;
-
-  if (!email || !token || !newPassword) {
-    return res.status(400).json({ success: false, message: 'সকল তথ্য প্রদান বাধ্যতামূলক।' });
-  }
-
-  const { db } = await connectToDatabase();
-  const userCollection = db.collection("user");
-  const accountCollection = db.collection("account");
-  const { otpCollection } = await getDbCollections();
-
-  const record = await otpCollection.findOne({ email });
-  if (!record || record.resetToken !== token) {
-    return res.status(400).json({ success: false, message: 'ভুল অথবা মেয়াদোত্তীর্ণ টোকেন।' });
-  }
-
-  if (new Date() > new Date(record.tokenExpires)) {
-    return res.status(400).json({ success: false, message: 'রিসেট লিংকের মেয়াদ শেষ হয়ে গেছে।' });
-  }
-
-  const user = await userCollection.findOne({ email });
-  if (!user) {
-    return res.status(404).json({ success: false, message: 'ব্যবহারকারী পাওয়া যায়নি।' });
-  }
-
-  const userIdObj = new ObjectId(user._id);
-  const hashedPassword = await hashPassword(newPassword);
-
-  await userCollection.updateOne(
-    { _id: userIdObj },
-    { $set: { updatedAt: new Date() } }
-  );
-
-  const existingAccount = await accountCollection.findOne({ 
-    userId: userIdObj, 
-    providerId: "credential" 
-  });
-
-  if (existingAccount) {
-    await accountCollection.updateOne(
-      { _id: existingAccount._id },
-      { $set: { password: hashedPassword, updatedAt: new Date() } }
-    );
-  } else {
-    await accountCollection.insertOne({
-      id: new ObjectId().toString(),
-      userId: userIdObj,
-      accountId: email,
-      providerId: "credential",
-      providerAccountId: email,
-      password: hashedPassword,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    });
-  }
-
-  await otpCollection.deleteOne({ email });
-  res.status(200).json({ success: true, message: 'পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে!' });
 }));
 
 app.get("/api/admin/profile", tryCatch(async (req, res) => {
@@ -820,10 +706,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: err.message });
 });
 
+// লোকাল টেস্টের জন্য
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
 }
 
+// Vercel-এর জন্য এক্সপোর্ট
 module.exports = app;
