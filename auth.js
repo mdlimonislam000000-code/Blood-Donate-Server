@@ -7,8 +7,8 @@ const client = new MongoClient(process.env.MONGO_URI);
 const db = client.db("MMJ-Blood-bank");
 
 const auth = betterAuth({
-    baseURL: "http://localhost:5000",
-    trustedOrigins: ["http://localhost:3000"],
+    baseURL: `${process.env.BETTER_AUTH_URL_SERVER}`,
+    trustedOrigins: [`${process.env.BETTER_AUTH_URL_CLIENT}`],
 
     advanced: {
         useSecureCookies: false, 
