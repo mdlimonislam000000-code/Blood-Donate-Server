@@ -24,7 +24,7 @@ app.use(cors({
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// Better Auth রাউট হ্যান্ডলিং
+// Better Auth Route Handling
 app.all("/api/auth/*", async (req, res, next) => {
   try {
     return toNodeHandler(auth)(req, res, next);
@@ -34,41 +34,46 @@ app.all("/api/auth/*", async (req, res, next) => {
   }
 });
 
+// --- SAFE MONGODB CONNECTION FOR VERCEL ---
 const uri = process.env.MONGO_URI;
-let client = null;
-let clientPromise = null;
-
 if (!uri) {
   throw new Error("Please add your Mongo URI to .env");
 }
 
+let client = new MongoClient(uri, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  },
+  maxPoolSize: 10,
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+});
+
+let clientPromise = null;
+
 if (process.env.NODE_ENV === "development") {
   if (!global._mongoClientPromise) {
-    client = new MongoClient(uri, {
-      serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true,
-      },
-    });
     global._mongoClientPromise = client.connect();
   }
   clientPromise = global._mongoClientPromise;
 } else {
-  client = new MongoClient(uri, {
-    serverApi: {
-      version: ServerApiVersion.v1,
-      strict: true,
-      deprecationErrors: true,
-    },
-  });
-  clientPromise = client.connect();
+  if (!global._cachedClientPromise) {
+    global._cachedClientPromise = client.connect();
+  }
+  clientPromise = global._cachedClientPromise;
 }
 
 async function connectToDatabase() {
-  const connectedClient = await clientPromise;
-  const db = connectedClient.db("MMJ-Blood-bank");
-  return { client: connectedClient, db };
+  try {
+    const connectedClient = await clientPromise;
+    const db = connectedClient.db("MMJ-Blood-bank");
+    return { client: connectedClient, db };
+  } catch (err) {
+    console.error("Database Connection Failed:", err);
+    throw err;
+  }
 }
 
 const getDbCollections = async () => {
@@ -87,7 +92,8 @@ const tryCatch = (fn) => async (req, res, next) => {
   try {
     await fn(req, res, next);
   } catch (error) {
-    next(error);
+    console.error("API Error:", error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
