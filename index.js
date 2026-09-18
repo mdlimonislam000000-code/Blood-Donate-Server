@@ -4,6 +4,10 @@ const cors = require("cors");
 const nodemailer = require("nodemailer");
 require("dotenv").config();
 
+// Better Auth হ্যান্ডলারের জন্য সরাসরি রিকোয়ার করে নেওয়া হলো
+const { toNodeHandler } = require("better-auth/node");
+const { auth } = require("./auth.js");
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -19,11 +23,9 @@ app.use(cors({
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// Vercel serverless environment-er jonno dynamic Better Auth route handling
-app.use("/api/auth", async (req, res, next) => {
+// Better Auth রাউট হ্যান্ডলিং (সরাসরি নোড হ্যান্ডলার ব্যবহার করে)
+app.all("/api/auth/*", async (req, res, next) => {
   try {
-    const { toNodeHandler } = await import("better-auth/node");
-    const { auth } = await import("./auth.js");
     return toNodeHandler(auth)(req, res, next);
   } catch (error) {
     console.error("Better Auth Error:", error);
