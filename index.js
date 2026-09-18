@@ -4,9 +4,6 @@ const cors = require("cors");
 const nodemailer = require("nodemailer");
 require("dotenv").config();
 
-const { toNodeHandler } = require("better-auth/node");
-const { auth } = require("./auth.js");
-
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -16,17 +13,17 @@ app.use(cors({
     "http://localhost:3000",
     "https://mmj-server-kohl.vercel.app"
   ], 
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+  credentials: true
 }));
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// Better Auth Route Handling
-app.all("/api/auth/*", async (req, res, next) => {
+// Vercel serverless environment-er jonno dynamic Better Auth route handling
+app.use("/api/auth", async (req, res, next) => {
   try {
+    const { toNodeHandler } = await import("better-auth/node");
+    const { auth } = await import("./auth.js");
     return toNodeHandler(auth)(req, res, next);
   } catch (error) {
     console.error("Better Auth Error:", error);
@@ -34,46 +31,30 @@ app.all("/api/auth/*", async (req, res, next) => {
   }
 });
 
-// --- SAFE MONGODB CONNECTION FOR VERCEL ---
 const uri = process.env.MONGO_URI;
-if (!uri) {
-  throw new Error("Please add your Mongo URI to .env");
-}
-
-let client = new MongoClient(uri, {
+const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
   },
-  maxPoolSize: 10,
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 45000,
 });
 
-let clientPromise = null;
-
-if (process.env.NODE_ENV === "development") {
-  if (!global._mongoClientPromise) {
-    global._mongoClientPromise = client.connect();
-  }
-  clientPromise = global._mongoClientPromise;
-} else {
-  if (!global._cachedClientPromise) {
-    global._cachedClientPromise = client.connect();
-  }
-  clientPromise = global._cachedClientPromise;
-}
+let cachedClient = null;
+let cachedDb = null;
 
 async function connectToDatabase() {
-  try {
-    const connectedClient = await clientPromise;
-    const db = connectedClient.db("MMJ-Blood-bank");
-    return { client: connectedClient, db };
-  } catch (err) {
-    console.error("Database Connection Failed:", err);
-    throw err;
+  if (cachedClient && cachedDb) {
+    return { client: cachedClient, db: cachedDb };
   }
+  
+  if (!client.topology || !client.topology.isConnected()) {
+    await client.connect();
+  }
+  
+  cachedClient = client;
+  cachedDb = client.db("MMJ-Blood-bank");
+  return { client: cachedClient, db: cachedDb };
 }
 
 const getDbCollections = async () => {
@@ -92,8 +73,7 @@ const tryCatch = (fn) => async (req, res, next) => {
   try {
     await fn(req, res, next);
   } catch (error) {
-    console.error("API Error:", error);
-    res.status(500).json({ success: false, message: error.message });
+    next(error);
   }
 };
 
@@ -693,6 +673,12 @@ app.patch("/api/verify-nid/update-donation/:userId", tryCatch(async (req, res) =
   }
 
   res.status(200).json({ success: true, message: "Donation record updated successfully!", result });
+}));
+
+app.get("/api/donors", tryCatch(async (req, res) => {
+  const { usersCollection } = await getDbCollections();
+  const donors = await usersCollection.find({ isAvailableForDonate: true }).toArray();
+  res.status(200).json({ success: true, data: donors });
 }));
 
 app.patch("/api/users/donor-settings/:id", tryCatch(async (req, res) => {
