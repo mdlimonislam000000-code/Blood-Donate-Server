@@ -7,15 +7,6 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Better Auth সেফ হ্যান্ডলিং (সার্ভার ক্র্যাশ রোধ করতে)
-try {
-  const { toNodeHandler } = require("better-auth/node");
-  const { auth } = require("./auth");
-  app.use("/api/auth", toNodeHandler(auth));
-} catch (authError) {
-  console.log("Better Auth load skipped or error:", authError.message);
-}
-
 app.use(cors({
   origin: [
     process.env.BETTER_AUTH_URL_CLIENT, 
@@ -27,6 +18,18 @@ app.use(cors({
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
+
+// Better Auth সেফ হ্যান্ডলিং (ES Module ক্র্যাশ রোধ করার জন্য ডায়নামিক ইমপোর্ট)
+(async () => {
+  try {
+    const { toNodeHandler } = await import("better-auth/node");
+    const { auth } = await import("./auth.js");
+    app.use("/api/auth", toNodeHandler(auth));
+    console.log("Better Auth loaded successfully.");
+  } catch (authError) {
+    console.log("Better Auth load skipped or error:", authError.message);
+  }
+})();
 
 const uri = process.env.MONGO_URI;
 const client = new MongoClient(uri, {
