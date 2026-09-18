@@ -4,16 +4,12 @@ const cors = require("cors");
 const nodemailer = require("nodemailer");
 require("dotenv").config();
 
-// Better Auth সরাসরি রিকোয়ার করা হলো যাতে সার্ভারলেস এনভায়রনমেন্টে 404 Not Found না আসে
-const { toNodeHandler } = require("better-auth/node");
-const { auth } = require("./auth.js");
-
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors({
   origin: [
-    process.env.BETTER_AUTH_URL_CLIENT, 
+    "https://mmj-blood-bank.vercel.app",
     "http://localhost:3000",
     "https://mmj-server-kohl.vercel.app"
   ], 
@@ -23,8 +19,17 @@ app.use(cors({
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// Better Auth রাউট হ্যান্ডলার
-app.use("/api/auth", toNodeHandler(auth));
+// Vercel serverless environment-er jonno dynamic Better Auth route handling
+app.use("/api/auth", async (req, res, next) => {
+  try {
+    const { toNodeHandler } = await import("better-auth/node");
+    const { auth } = await import("./auth.js");
+    return toNodeHandler(auth)(req, res, next);
+  } catch (error) {
+    console.error("Better Auth Error:", error);
+    return res.status(500).json({ success: false, message: "Auth initialization failed", error: error.message });
+  }
+});
 
 const uri = process.env.MONGO_URI;
 const client = new MongoClient(uri, {
@@ -35,7 +40,6 @@ const client = new MongoClient(uri, {
   },
 });
 
-// কানেকশন ক্যাশ করার জন্য গ্লোবাল ভেরিয়েবল (Vercel Serverless এর জন্য অত্যন্ত জরুরি)
 let cachedClient = null;
 let cachedDb = null;
 
@@ -65,7 +69,6 @@ const getDbCollections = async () => {
   };
 };
 
-// এসিনক্রোনাস হ্যান্ডলারের জন্য ট্রাই-ক্যাচ অটোমেশন ফাংশন
 const tryCatch = (fn) => async (req, res, next) => {
   try {
     await fn(req, res, next);
@@ -74,7 +77,6 @@ const tryCatch = (fn) => async (req, res, next) => {
   }
 };
 
-// Nodemailer দিয়ে ইমেল পাঠানোর ইউটিলিটি ফাংশন
 const sendEmail = async (toEmail, subject, htmlContent) => {
   try {
     if (!toEmail) {
@@ -109,7 +111,7 @@ const sendEmail = async (toEmail, subject, htmlContent) => {
 app.post("/api/send-otp", tryCatch(async (req, res) => {
   const { email } = req.body;
   if (!email) {
-    return res.status(400).json({ success: false, message: 'ইমেল ঠিকানা প্রয়োজন।' });
+    return res.status(400).json({ success: false, message: 'Imel thikana proyojon.' });
   }
 
   const { otpCollection } = await getDbCollections();
@@ -122,45 +124,45 @@ app.post("/api/send-otp", tryCatch(async (req, res) => {
     { upsert: true, returnDocument: 'after' }
   );
 
-  const emailSubject = 'আপনার রেজিস্ট্রেশন ভেরিফিকেশন ওটিপি (OTP)';
+  const emailSubject = 'Apnar registration verification OTP';
   const emailBody = `
     <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
       <h2 style="color: #e11d48;">MMJ Blood Donate Society</h2>
-      <p>আপনার অ্যাকাউন্ট রেজিস্ট্রেশনের জন্য নিচের ওটিপি কোডটি ব্যবহার করুন:</p>
+      <p>Apnar account registration-er jonno nicher OTP code-ti babohar korun:</p>
       <h1 style="background: #f3f4f6; padding: 10px 20px; display: inline-block; letter-spacing: 5px; color: #111;">${otp}</h1>
-      <p>কোডটি মাত্র <b>৩ মিনিট</b> পর্যন্ত কার্যকর থাকবে।</p>
+      <p>Code-ti matro <b>3 minit</b> porjonto karjokor thakbe.</p>
     </div>
   `;
 
   const emailResult = await sendEmail(email, emailSubject, emailBody);
   if (!emailResult.success) {
-    return res.status(500).json({ success: false, message: 'ইমেল পাঠানো ব্যর্থ হয়েছে।' });
+    return res.status(500).json({ success: false, message: 'Imel pathano bertho hoyeche.' });
   }
 
-  res.status(200).json({ success: true, message: 'ওটিপি সফলভাবে পাঠানো হয়েছে।' });
+  res.status(200).json({ success: true, message: 'OTP safalvabe pathano hoyeche.' });
 }));
 
 app.post("/api/verify-otp", tryCatch(async (req, res) => {
   const { email, otp } = req.body;
   if (!email || !otp) {
-    return res.status(400).json({ success: false, message: 'ইমেল এবং ওটিপি উভয়ই দিতে হবে।' });
+    return res.status(400).json({ success: false, message: 'Imel ebong OTP ubhoy-i dite hobe.' });
   }
 
   const { otpCollection } = await getDbCollections();
   const record = await otpCollection.findOne({ email });
 
   if (!record) {
-    return res.status(400).json({ success: false, message: 'কোনো ওটিপি রেকর্ড পাওয়া যায়নি।' });
+    return res.status(400).json({ success: false, message: 'Kono OTP record paoa jayni.' });
   }
   if (new Date() > new Date(record.otpExpires)) {
-    return res.status(400).json({ success: false, message: 'ওটিপির মেয়াদ শেষ হয়ে গেছে।' });
+    return res.status(400).json({ success: false, message: 'OTP-er meyad shesh hoye geche.' });
   }
   if (record.otp !== otp) {
-    return res.status(400).json({ success: false, message: 'ভুল ওটিপি কোড দিয়েছেন।' });
+    return res.status(400).json({ success: false, message: 'Bhul OTP code diyechan.' });
   }
 
   await otpCollection.deleteOne({ email });
-  res.status(200).json({ success: true, message: 'ওটিপি সফলভাবে ভেরিফাই হয়েছে!' });
+  res.status(200).json({ success: true, message: 'OTP safalvabe verify hoyeche!' });
 }));
 
 app.get("/api/admin/profile", tryCatch(async (req, res) => {
@@ -451,7 +453,7 @@ app.patch("/api/nid-verifications/:id", tryCatch(async (req, res) => {
     await notificationsCollection.insertOne({
       userId: nidRecord.userId,
       title: "NID Verification Update",
-      message: `আপনার NID ভেরিফিকেশন স্ট্যাটাসটি বর্তমানে "${status}" হিসেবে আপডেট করা হয়েছে।`,
+      message: `Apnar NID verification status-ti bortomane "${status}" hisebe update kora hoyeche.`,
       type: "nid_status",
       isRead: false,
       createdAt: new Date(),
@@ -492,8 +494,8 @@ app.post("/api/blood-requests", tryCatch(async (req, res) => {
   if (requestData.userId) {
     await notificationsCollection.insertOne({
       userId: requestData.userId,
-      title: "রক্তের অনুরোধ সফল হয়েছে",
-      message: `আপনার ${requestData.bloodGroup} গ্রুপের রক্তের অনুরোধটি সফলভাবে পোস্ট করা হয়েছে।`,
+      title: "Rokter anurodh safal hoyeche",
+      message: `Apnar ${requestData.bloodGroup} grouper rokter anurodh-ti safalvabe post kora hoyeche.`,
       type: "blood_request",
       isRead: false,
       createdAt: new Date(),
@@ -591,8 +593,8 @@ app.post("/api/blood-requests/verify-and-complete", tryCatch(async (req, res) =>
   await donationHistoryCollection.insertOne(historyRecord);
   await notificationsCollection.insertOne({
     userId: userId,
-    title: "ডোনেশন সফলভাবে সম্পন্ন হয়েছে!",
-    message: `অভিনন্দন! আপনার ${bloodRequest.bloodGroup} গ্রুপের রক্তদান সফলভাবে ভেরিফাই ও সম্পন্ন হয়েছে।`,
+    title: "Donation safalvabe somponno hoyeche!",
+    message: `Obhinondon! Apnar ${bloodRequest.bloodGroup} grouper roktodan safalvabe verify o somponno hoyeche.`,
     type: "donation_success",
     isRead: false,
     createdAt: new Date(),
@@ -698,18 +700,15 @@ app.get("/", (req, res) => {
   });
 });
 
-// Global Error Handler
 app.use((err, req, res, next) => {
   console.error("Global Error Handler:", err.stack);
   res.status(500).json({ success: false, message: err.message });
 });
 
-// লোকাল টেস্টের জন্য
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
 }
 
-// Vercel-এর জন্য এক্সপোর্ট
 module.exports = app;
