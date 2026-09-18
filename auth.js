@@ -1,7 +1,9 @@
-const { betterAuth } = require("better-auth");
-const { mongodbAdapter } = require("better-auth/adapters/mongodb");
-const { MongoClient } = require("mongodb");
-require("dotenv").config();
+import { betterAuth } from "better-auth";
+import { mongodbAdapter } from "better-auth/adapters/mongodb";
+import { MongoClient } from "mongodb";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const uri = process.env.MONGO_URI;
 let client;
@@ -22,7 +24,7 @@ if (process.env.NODE_ENV === "development") {
   clientPromise = client.connect();
 }
 
-const auth = betterAuth({
+export const auth = betterAuth({
     baseURL: process.env.BETTER_AUTH_URL_SERVER || "https://mmj-server-kohl.vercel.app",
     trustedOrigins: [
         process.env.BETTER_AUTH_URL_CLIENT,
@@ -69,5 +71,3 @@ const auth = betterAuth({
         },
     },
 });
-
-module.exports = { auth };
