@@ -1,8 +1,10 @@
-const express = require("express");
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
-const cors = require("cors");
-const nodemailer = require("nodemailer");
-require("dotenv").config();
+import express from "express";
+import { MongoClient, ServerApiVersion, ObjectId } from "mongodb";
+import cors from "cors";
+import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -48,9 +50,7 @@ async function connectToDatabase() {
     return { client: cachedClient, db: cachedDb };
   }
   
-  if (!client.topology || !client.topology.isConnected()) {
-    await client.connect();
-  }
+  await client.connect();
   
   cachedClient = client;
   cachedDb = client.db("MMJ-Blood-bank");
@@ -717,4 +717,4 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-module.exports = app;
+export default app;
