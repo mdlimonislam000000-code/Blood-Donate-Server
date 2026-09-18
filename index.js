@@ -8,14 +8,16 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Better Auth সেফ হ্যান্ডলিং (সার্ভার ক্র্যাশ রোধ করতে)
-try {
-  const { toNodeHandler } = require("better-auth/node");
-  const { auth } = require("./auth");
-  app.use("/api/auth", toNodeHandler(auth));
-} catch (authError) {
-  console.log("Better Auth load skipped or error:", authError.message);
-}
+// Better Auth নিরাপদ হ্যান্ডলিং (CommonJS মোডের জন্য ডাইনামিক ইমপোর্ট)
+(async () => {
+  try {
+    const { toNodeHandler } = await import("better-auth/node");
+    const { auth } = await import("./auth.js");
+    app.use("/api/auth", toNodeHandler(auth));
+  } catch (authError) {
+    console.log("Better Auth load skipped or error:", authError.message);
+  }
+})();
 
 app.use(cors({
   origin: [
@@ -38,7 +40,6 @@ const client = new MongoClient(uri, {
   },
 });
 
-// কানেকশন ক্যাশ করার জন্য গ্লোবাল ভেরিয়েবল (Vercel Serverless এর জন্য অত্যন্ত জরুরি)
 let cachedClient = null;
 let cachedDb = null;
 
@@ -68,7 +69,6 @@ const getDbCollections = async () => {
   };
 };
 
-// এসিনক্রোনাস হ্যান্ডলারের জন্য ট্রাই-ক্যাচ অটোমেশন ফাংশন
 const tryCatch = (fn) => async (req, res, next) => {
   try {
     await fn(req, res, next);
@@ -77,7 +77,6 @@ const tryCatch = (fn) => async (req, res, next) => {
   }
 };
 
-// Nodemailer দিয়ে ইমেল পাঠানোর ইউটিলিটি ফাংশন
 const sendEmail = async (toEmail, subject, htmlContent) => {
   try {
     if (!toEmail) {
@@ -107,7 +106,6 @@ const sendEmail = async (toEmail, subject, htmlContent) => {
   }
 };
 
-// পাসওয়ার্ড হ্যাশ করার ইউটিলিটি ফাংশন
 const hashPassword = async (password) => {
   const salt = await bcrypt.genSalt(10);
   return await bcrypt.hash(password, salt);
@@ -115,7 +113,6 @@ const hashPassword = async (password) => {
 
 // --- API ROUTES ---
 
-// ১. ওটিপি সেন্ড করার এপিআই
 app.post("/api/send-otp", tryCatch(async (req, res) => {
   const email = req.body.email?.toLowerCase().trim();
   if (!email) {
@@ -150,7 +147,6 @@ app.post("/api/send-otp", tryCatch(async (req, res) => {
   res.status(200).json({ success: true, message: 'ওটিপি সফলভাবে পাঠানো হয়েছে।' });
 }));
 
-// ২. ওটিপি ভেরিফাই করার এপিআই
 app.post("/api/verify-otp", tryCatch(async (req, res) => {
   const email = req.body.email?.toLowerCase().trim();
   const { otp } = req.body;
@@ -176,7 +172,6 @@ app.post("/api/verify-otp", tryCatch(async (req, res) => {
   res.status(200).json({ success: true, message: 'ওটিপি সফলভাবে ভেরিফাই হয়েছে!' });
 }));
 
-// ৩. ফোরগট পাসওয়ার্ড এপিআই
 app.post("/api/forgot-password", tryCatch(async (req, res) => {
   const email = req.body.email?.toLowerCase().trim();
   if (!email) {
@@ -222,7 +217,6 @@ app.post("/api/forgot-password", tryCatch(async (req, res) => {
   res.status(200).json({ success: true, message: 'পাসওয়ার্ড রিসেট লিংক আপনার ইমেইলে পাঠানো হয়েছে।' });
 }));
 
-// ৪. রিসেট পাসওয়ার্ড কনফার্মেশন এপিআই
 app.post("/api/reset-password", tryCatch(async (req, res) => {
   const email = req.body.email?.toLowerCase().trim();
   const { token, newPassword } = req.body;
@@ -826,12 +820,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: err.message });
 });
 
-// লোকাল টেস্টের জন্য
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
 }
 
-// Vercel-এর জন্য এক্সপোর্ট
 module.exports = app;
