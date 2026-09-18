@@ -4,6 +4,10 @@ const cors = require("cors");
 const nodemailer = require("nodemailer");
 require("dotenv").config();
 
+// Better Auth সরাসরি রিকোয়ার করা হলো যাতে সার্ভারলেস এনভায়রনমেন্টে 404 Not Found না আসে
+const { toNodeHandler } = require("better-auth/node");
+const { auth } = require("./auth.js");
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -19,17 +23,8 @@ app.use(cors({
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-// Better Auth সেফ হ্যান্ডলিং (ES Module ক্র্যাশ রোধ করার জন্য ডায়নামিক ইমপোর্ট)
-(async () => {
-  try {
-    const { toNodeHandler } = await import("better-auth/node");
-    const { auth } = await import("./auth.js");
-    app.use("/api/auth", toNodeHandler(auth));
-    console.log("Better Auth loaded successfully.");
-  } catch (authError) {
-    console.log("Better Auth load skipped or error:", authError.message);
-  }
-})();
+// Better Auth রাউট হ্যান্ডলার
+app.use("/api/auth", toNodeHandler(auth));
 
 const uri = process.env.MONGO_URI;
 const client = new MongoClient(uri, {
