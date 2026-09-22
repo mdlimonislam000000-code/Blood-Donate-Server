@@ -6,12 +6,13 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const uri = process.env.MONGO_URI;
-let client;
-let clientPromise;
 
 if (!uri) {
   throw new Error("Please add your Mongo URI to .env");
 }
+
+let client;
+let clientPromise;
 
 if (process.env.NODE_ENV === "development") {
   if (!global._mongoClientPromise) {
@@ -25,16 +26,26 @@ if (process.env.NODE_ENV === "development") {
 }
 
 export const auth = betterAuth({
-    baseURL: process.env.BETTER_AUTH_URL_SERVER || "https://mmj-server-kohl.vercel.app",
+    // baseURL-er khetre ekhon direct environment variable ba default server url deya holo
+    baseURL: process.env.BETTER_AUTH_URL || process.env.BETTER_AUTH_URL_SERVER || "https://mmj-server-kohl.vercel.app",
+    
     trustedOrigins: [
         process.env.BETTER_AUTH_URL_CLIENT,
         "https://mmj-blood-bank.vercel.app",
         "http://localhost:3000"
-    ],
+    ].filter(Boolean),
 
     advanced: {
         useSecureCookies: process.env.NODE_ENV === "production", 
         cookiePrefix: "better-auth",
+        // Cross-domain cookie sharing thik rakhar jonno nicher setting-gulo khubi proyojon
+        crossSubDomainCookies: {
+            enabled: true,
+        },
+        defaultCookieAttributes: {
+            secure: true,
+            sameSite: "none",
+        },
     },
 
     database: mongodbAdapter(client.db("MMJ-Blood-bank"), {

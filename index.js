@@ -50,7 +50,9 @@ async function connectToDatabase() {
     return { client: cachedClient, db: cachedDb };
   }
   
-  await client.connect();
+  if (!client.topology || !client.topology.isConnected()) {
+    await client.connect();
+  }
   
   cachedClient = client;
   cachedDb = client.db("MMJ-Blood-bank");
